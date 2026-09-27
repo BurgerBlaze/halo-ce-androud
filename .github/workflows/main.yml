@@ -1,0 +1,67 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'port/android/**'
+      - 'source/**'
+      - 'configure.py'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install ninja and clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang unzip
+
+      - name: Set up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          add-to-path: true
+
+      # The build needs the August 2001 Xbox SDK extracted so that
+      # xbox/{bin,include} exist at the repo root (see the main
+      # README's "Build instructions"). You have to source the SDK
+      # yourself. One option: zip it, base64-encode it, and paste
+      # that into a repo secret named XBOX_SDK_B64. Secrets have a
+      # size limit, so if it's too big, upload it as a private
+      # release asset in this repo instead and curl/download it here
+      # with a GitHub token.
+      - name: Restore Xbox SDK
+        env:
+          XBOX_SDK_B64: ${{ secrets.XBOX_SDK_B64 }}
+        run: |
+          echo "$XBOX_SDK_B64" | base64 -d > xdk.zip
+          unzip -q xdk.zip -d xdk_extracted
+          mv xdk_extracted/XDK/xbox ./xbox
+          test -d xbox/bin && test -d xbox/include
+
+      - name: Configure build
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: python3 configure.py
+
+      - name: Build android_apk target
+        run: ninja android_apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: halo-android-debug
+          path: port/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          
